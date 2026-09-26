@@ -6,7 +6,7 @@ on:
     branches: [ main ]
     paths:
       - 'OfferRejectHelper-v1.0-diagnostic-source.zip'
-      - '.github/workflows/build-apk.yml'
+      - '.github/workflows/main.yml'
 
 permissions:
   contents: read
@@ -37,13 +37,11 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android SDK 35
         run: |
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build diagnostic APK
         working-directory: extracted/SparkRejectHelper
