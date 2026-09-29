@@ -1,9 +1,15 @@
-# Cheese builds
+# Building Cheese
 
-Keep applicationId `com.local.sparkreject` unchanged for in-place updates.
+The active project is `OfferRejectHelper-v1.0-diagnostic-source.zip`. Unpack it and open `SparkRejectHelper` in Android Studio. The other source ZIP is historical.
 
-The main workflow assigns version code 100000 + run number * 1000 + run attempt, and displays the version and code in the app and APK filename. Keep this workflow and its run counter; if replacing it, choose a base above all previously distributed codes. A rerun of an older run must not be distributed as the latest build.
+The main workflow runs the Java regression checks, builds the APK, verifies its signature, and uploads a named artifact. Download and extract that artifact to install its APK.
 
-For stable signing, configure repository Actions secret CHEESE_DEBUG_KEYSTORE_BASE64 with base64 bytes of a permanent Android debug keystore (alias androiddebugkey, standard Android debug passwords). Reuse the original signing key if available. Never commit a keystore or its base64 contents. The workflow restores it before Gradle runs. Without this secret, the runner generates an ephemeral key, and in-place installation is not guaranteed. Public certificate fingerprints are included with each APK for comparison.
+Every run uses versionCode `100000 + GITHUB_RUN_NUMBER * 1000 + GITHUB_RUN_ATTEMPT` and versionName `2.2.RUN.ATTEMPT`. Do not distribute a rerun of an older workflow run as a newer version.
 
-A new signing key cannot update an app signed with a different key, regardless of version code. Do not uninstall the existing app casually: that removes its local settings and diagnostics.
+The Actions secret `CHEESE_DEBUG_KEYSTORE_BASE64` is REQUIRED. Builds fail if it is absent; they never silently create another signing key. Keep the same secret and application ID (`com.local.sparkreject`) for updates in place. The ZIP must never contain a keystore or signing passwords.
+
+Local builds default to code 22 and version 2.2-local; they are not update packages for an installed Actions build. Pass the version properties and use the same signing key when producing an update outside Actions.
+
+## Current repair
+
+Strict read/scroll-only mode, paced scan callbacks, clipped-header handling, bounded scan retries, detail mileage verification, and declared screenshot capability. Live Spark behavior still needs device testing. Keep automatic rejection off during this scan test.
