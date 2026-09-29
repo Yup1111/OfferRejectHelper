@@ -66,6 +66,11 @@ jobs:
             mkdir -p "$HOME/.android"
             printf '%s' "$CHEESE_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
             chmod 600 "$HOME/.android/debug.keystore"
+            echo "CHEESE_SIGNING_KEYSTORE_PATH=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
+            echo "CHEESE_SIGNING_PASSWORD=android" >> "$GITHUB_ENV"
+            SIGNER_SHA=$(keytool -exportcert -alias androiddebugkey -keystore "$HOME/.android/debug.keystore" -storepass android | sha256sum | cut -d ' ' -f 1)
+            test -n "$SIGNER_SHA"
+            echo "CHEESE_SIGNER_SHA256=$SIGNER_SHA" >> "$GITHUB_ENV"
           else
             echo "::error::Set CHEESE_DEBUG_KEYSTORE_BASE64 before building. Refusing to generate a different signing key."
             exit 1
@@ -80,6 +85,11 @@ jobs:
           mkdir -p output
           cp extracted/SparkRejectHelper/app/build/outputs/apk/debug/app-debug.apk "output/Cheese-$CHEESE_VERSION-build-$CHEESE_CODE.apk"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "output/Cheese-$CHEESE_VERSION-build-$CHEESE_CODE.apk" > output/signing-certificate.txt
+          ACTUAL_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' output/signing-certificate.txt)
+          if [ "$ACTUAL_SHA" != "$CHEESE_SIGNER_SHA256" ]; then
+            echo "::error::APK signature does not match the permanent signing key. Refusing upload."
+            exit 1
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
