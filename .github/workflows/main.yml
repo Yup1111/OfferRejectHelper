@@ -49,7 +49,7 @@ jobs:
           echo "CHEESE_CODE=$CODE" >> "$GITHUB_ENV"
           echo "CHEESE_VERSION=2.2.$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
 
-      - name: Restore permanent signing key when configured
+      - name: Restore required permanent signing key
         env:
           CHEESE_DEBUG_KEYSTORE_BASE64: ${{ secrets.CHEESE_DEBUG_KEYSTORE_BASE64 }}
         run: |
@@ -58,7 +58,8 @@ jobs:
             printf '%s' "$CHEESE_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
             chmod 600 "$HOME/.android/debug.keystore"
           else
-            echo "::warning::Permanent signing key is not configured. This APK may not install over previous builds."
+            echo "::error::Set CHEESE_DEBUG_KEYSTORE_BASE64 before building. Refusing to generate a different signing key."
+            exit 1
           fi
 
       - name: Build diagnostic APK
