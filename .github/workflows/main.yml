@@ -43,13 +43,37 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
           "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
+      - name: Set unique build version
+        run: |
+          CODE=$((100000 + GITHUB_RUN_NUMBER * 1000 + GITHUB_RUN_ATTEMPT))
+          echo "CHEESE_CODE=$CODE" >> "$GITHUB_ENV"
+          echo "CHEESE_VERSION=2.2.$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+
+      - name: Restore permanent signing key when configured
+        env:
+          CHEESE_DEBUG_KEYSTORE_BASE64: ${{ secrets.CHEESE_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$CHEESE_DEBUG_KEYSTORE_BASE64" ]; then
+            mkdir -p "$HOME/.android"
+            printf '%s' "$CHEESE_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+            chmod 600 "$HOME/.android/debug.keystore"
+          else
+            echo "::warning::Permanent signing key is not configured. This APK may not install over previous builds."
+          fi
+
       - name: Build diagnostic APK
         working-directory: extracted/SparkRejectHelper
-        run: gradle :app:assembleDebug --stacktrace
+        run: gradle :app:assembleDebug -PcheeseVersionCode="$CHEESE_CODE" -PcheeseVersionName="$CHEESE_VERSION" --stacktrace
+
+      - name: Name APK and record signing certificate
+        run: |
+          mkdir -p output
+          cp extracted/SparkRejectHelper/app/build/outputs/apk/debug/app-debug.apk "output/Cheese-$CHEESE_VERSION-build-$CHEESE_CODE.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "output/Cheese-$CHEESE_VERSION-build-$CHEESE_CODE.apk" > output/signing-certificate.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: OfferRejectHelper-v1.0-diagnostic-apk
-          path: extracted/SparkRejectHelper/app/build/outputs/apk/debug/app-debug.apk
+          name: Cheese-${{ env.CHEESE_VERSION }}-build-${{ env.CHEESE_CODE }}
+          path: output/
           if-no-files-found: error
