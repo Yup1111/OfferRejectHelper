@@ -36,10 +36,11 @@ jobs:
         working-directory: extracted/SparkRejectHelper
         run: |
           mkdir -p /tmp/cheese-checks
-          javac -d /tmp/cheese-checks app/src/main/java/com/local/sparkreject/Decision.java app/src/main/java/com/local/sparkreject/StoreRule.java app/src/main/java/com/local/sparkreject/OfferRegion.java checks/*.java
+          javac -d /tmp/cheese-checks app/src/main/java/com/local/sparkreject/Decision.java app/src/main/java/com/local/sparkreject/StoreRule.java app/src/main/java/com/local/sparkreject/OfferRegion.java app/src/main/java/com/local/sparkreject/ScanEvidence.java checks/*.java
           java -cp /tmp/cheese-checks DecisionCheck
           java -cp /tmp/cheese-checks StoreRuleCheck
           java -cp /tmp/cheese-checks OfferRegionCheck
+          java -cp /tmp/cheese-checks ScanEvidenceCheck
 
       - name: Set up Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
