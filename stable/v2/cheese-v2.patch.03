@@ -1,0 +1,77 @@
+">Cheese Reject Helper</string>
+-    <string name="service_description">Reads visible Spark offer store numbers, total pay and miles, and presses Reject only when an enabled Cheese Reject Helper rule clearly matches. It never accepts offers and uses no network access.</string>
++    <string name="app_name">Cheese</string>
++    <string name="service_description">Reads visible Spark offer store numbers, total pay and miles, and presses Reject only when an enabled Cheese rule clearly matches. It never accepts offers and uses no network access.</string>
+     <color name="icon_background">#07162E</color>
+ </resources>
+diff -ruN '--exclude=.gradle' '--exclude=build' '--exclude=ic_launcher_art.webp' cheese_base/SparkRejectHelper/checks/DecisionCheck.java cheese_fix/SparkRejectHelper/checks/DecisionCheck.java
+--- cheese_base/SparkRejectHelper/checks/DecisionCheck.java	2026-09-24 18:10:36.000000000 +0000
++++ cheese_fix/SparkRejectHelper/checks/DecisionCheck.java	2026-10-01 18:36:43.512162514 +0000
+@@ -7,6 +7,10 @@
+         Decision actual = Decision.evaluate(List.of(fields), new BigDecimal("2.00"));
+         if (actual.result != expected) throw new AssertionError(expected + " but got " + actual.result + ": " + actual.explanation);
+     }
++    private static void eq(String expected, BigDecimal actual, String label) {
++        if (actual == null || new BigDecimal(expected).compareTo(actual) != 0)
++            throw new AssertionError(label + " expected " + expected + " but got " + actual);
++    }
+     public static void main(String[] args) {
+         check(Decision.Result.REJECT, "Estimated earnings", "$15.00", "Trip distance", "10 mi", "Reject");
+         check(Decision.Result.KEEP, "Estimated earnings $22.00", "Total distance 11 miles");
+@@ -24,8 +28,34 @@
+         check(Decision.Result.REJECT, "$19.00", "3 stops", "• 10.5 miles • 40 mins");
+         check(Decision.Result.UNKNOWN, "$23.41", "3 stops", "• 10.5 miles • 40 mins", "Pickup 2 miles away");
+         check(Decision.Result.UNKNOWN, "$23.41", "3 stops", "Trip distance 10.5 miles", "Other distance 12 miles");
++
+         Decision sample = Decision.evaluate(List.of("$23.41", "$10 estimated tip", "3 stops", "• 10.5 miles • 40 mins"), new BigDecimal("2"));
+-        if (!new BigDecimal("10.5").equals(sample.miles) || !new BigDecimal("2.23").equals(sample.perMile)) throw new AssertionError("Incorrect mileage/rate");
++        eq("10.5", sample.miles, "miles");
++        eq("2.23", sample.perMile, "rate without incentive");
++
++        // Exact behavior requested from the Spark screenshot: displayed offer $27.80 + $5 incentive = $32.80 for $/mile.
++        Decision incentive = Decision.evaluate(List.of(
++                "$27.80", "Total includes", "$8 estimated tip", "$5 incentive", "1 point",
++                "3 stops • 10.5 miles • 1hr, 3 mins", "Sam's Club #8291", "REJECT", "ACCEPT"), new BigDecimal("3.00"));
++        eq("27.80", incentive.pay, "displayed pay");
++        eq("5", incentive.incentivePay, "incentive");
++        eq("32.80", incentive.effectivePerMilePay, "effective per-mile pay");
++        eq("3.12", incentive.perMile, "incentive-adjusted rate");
++        if (incentive.result != Decision.Result.KEEP) throw new AssertionError("$32.80/10.5 should clear $3/mi");
++
++        // Do not accidentally count tip as incentive when text is combined in one accessibility field.
++        Decision combined = Decision.evaluate(List.of(
++                "$27.80", "Total includes $8 estimated tip, $5 incentive", "3 stops • 10.5 miles"), new BigDecimal("3"));
++        eq("5", combined.incentivePay, "combined incentive line");
++        eq("32.80", combined.effectivePerMilePay, "combined effective pay");
++
++        Decision multiple = Decision.evaluate(List.of(
++                "$20.00", "$5 incentive", "$2.50 incentive", "2 stops • 10 miles"), new BigDecimal("2.70"));
++        eq("7.50", multiple.incentivePay, "multiple incentives");
++        eq("27.50", multiple.effectivePerMilePay, "multiple-incentive pay");
++        eq("2.75", multiple.perMile, "multiple-incentive rate");
++        if (multiple.result != Decision.Result.KEEP) throw new AssertionError("Multiple incentives should be added");
++
+         System.out.println("Decision checks passed");
+     }
+ }
+diff -ruN '--exclude=.gradle' '--exclude=build' '--exclude=ic_launcher_art.webp' cheese_base/SparkRejectHelper/checks/RuleEngineCheck.java cheese_fix/SparkRejectHelper/checks/RuleEngineCheck.java
+--- cheese_base/SparkRejectHelper/checks/RuleEngineCheck.java	2026-10-01 05:27:41.000000000 +0000
++++ cheese_fix/SparkRejectHelper/checks/RuleEngineCheck.java	2026-10-01 18:36:43.512922244 +0000
+@@ -29,6 +29,17 @@
+         check(RuleEngine.Result.REJECT,"5678",badRate,c(false,null,false,null,false,Set.of(),true,"2"));
+         check(RuleEngine.Result.REJECT,"1234",low,c(false,null,true,"15",true,Set.of("1234"),true,"10"));
+         check(RuleEngine.Result.UNKNOWN,null,good,c(false,null,false,null,true,Set.of("1234"),false,null));
++
++        // Per-mile uses displayed total + incentive.
++        Decision.Values incentiveRate = values("$27.80", "$5 incentive", "3 stops • 10.5 miles");
++        check(RuleEngine.Result.KEEP,"8291",incentiveRate,c(false,null,false,null,false,Set.of(),true,"3.00"));
++        check(RuleEngine.Result.REJECT,"8291",incentiveRate,c(false,null,false,null,false,Set.of(),true,"3.20"));
++
++        // Offer-pay minimum and high-pay protection still use Spark's displayed total, not the added per-mile incentive basis.
++        Decision.Values lowDisplayedWithIncentive = values("$12.00", "$10 incentive", "2 stops • 4 miles");
++        check(RuleEngine.Result.REJECT,"8291",lowDisplayedWithIncentive,c(false,null,true,"15",false,Set.of(),false,null));
++        check(RuleEngine.Result.REJECT,"8291",lowDisplayedWithIncentive,c(true,"20",true,"15",false,Set.of(),false,null));
++
+         System.out.println("Rule engine checks passed");
+     }
+ }
