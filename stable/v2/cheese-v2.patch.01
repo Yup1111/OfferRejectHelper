@@ -1,0 +1,135 @@
+|| v.miles == null || v.miles.signum() <= 0 || minimum == null || minimum.signum() <= 0)
++            return new Decision(Result.UNKNOWN, "Could not identify one offer total and one trip distance", v);
++        int comparison = v.effectivePerMilePay.compareTo(minimum.multiply(v.miles));
+         return new Decision(comparison < 0 ? Result.REJECT : Result.KEEP,
+-                comparison < 0 ? "Below minimum $/mile" : "At or above minimum $/mile", v.pay, v.miles);
++                comparison < 0 ? "Below minimum $/mile" : "At or above minimum $/mile", v);
+     }
+ 
+     /** Only numeric offer tokens and counts; never addresses or customer text. */
+     public static String diagnostic(List<String> fields, BigDecimal minimum) {
+-        java.util.Set<String> money = new java.util.LinkedHashSet<>();
+-        java.util.Set<String> miles = new java.util.LinkedHashSet<>();
++        Set<String> money = new LinkedHashSet<>();
++        Set<String> miles = new LinkedHashSet<>();
+         int standaloneMoney = 0, stops = 0;
+         for (String raw : fields) {
+             Matcher m = MONEY.matcher(raw);
+@@ -93,7 +116,8 @@
+         Values v = parse(fields);
+         return "texts=" + fields.size() + ", dollar values=" + money + ", mile values=" + miles
+                 + ", standalone pay=" + standaloneMoney + ", stop summaries=" + stops
+-                + ", parsed pay=" + v.pay + ", parsed miles=" + v.miles
++                + ", parsed pay=" + v.pay + ", incentive=" + v.incentivePay
++                + ", effective per-mile pay=" + v.effectivePerMilePay + ", parsed miles=" + v.miles
+                 + (v.perMile == null ? "" : ", parsed $/mi=" + v.perMile);
+     }
+ 
+@@ -101,10 +125,29 @@
+         while (matcher.find()) values.add(new BigDecimal(matcher.group(1)));
+     }
+ 
++    private static void collectIncentives(String text, List<BigDecimal> values) {
++        boolean found = false;
++        Matcher before = INCENTIVE_BEFORE.matcher(text);
++        while (before.find()) {
++            values.add(new BigDecimal(before.group(1)));
++            found = true;
++        }
++        if (!found) {
++            Matcher after = INCENTIVE_AFTER.matcher(text);
++            while (after.find()) values.add(new BigDecimal(after.group(1)));
++        }
++    }
++
+     private static BigDecimal unique(List<BigDecimal> values) {
+         if (values.isEmpty()) return null;
+         BigDecimal first = values.get(0);
+         for (BigDecimal v : values) if (v.compareTo(first) != 0) return null;
+         return first;
+     }
++
++    private static BigDecimal sum(List<BigDecimal> values) {
++        BigDecimal total = BigDecimal.ZERO;
++        for (BigDecimal value : values) total = total.add(value);
++        return total;
++    }
+ }
+diff -ruN '--exclude=.gradle' '--exclude=build' '--exclude=ic_launcher_art.webp' cheese_base/SparkRejectHelper/app/src/main/java/com/local/sparkreject/GifBackgroundView.java cheese_fix/SparkRejectHelper/app/src/main/java/com/local/sparkreject/GifBackgroundView.java
+--- cheese_base/SparkRejectHelper/app/src/main/java/com/local/sparkreject/GifBackgroundView.java	2026-10-01 05:24:16.000000000 +0000
++++ cheese_fix/SparkRejectHelper/app/src/main/java/com/local/sparkreject/GifBackgroundView.java	2026-10-01 18:35:17.930586651 +0000
+@@ -25,19 +25,22 @@
+ 
+     @Override protected void onDraw(Canvas canvas) {
+         super.onDraw(canvas);
+-        if (movie == null || movie.width() <= 0 || movie.height() <= 0) {
+-            canvas.drawColor(0xFF111111);
+-            return;
+-        }
++        // Fill unused space with a dark cheese/brown backdrop instead of zooming the GIF until it is unrecognizable.
++        canvas.drawColor(0xFF160D07);
++        if (movie == null || movie.width() <= 0 || movie.height() <= 0) return;
++
+         int duration = movie.duration();
+         if (duration <= 0) duration = 1000;
+         movie.setTime((int) ((SystemClock.uptimeMillis() - started) % duration));
+ 
+-        float sx = getWidth() / (float) movie.width();
+-        float sy = getHeight() / (float) movie.height();
+-        float scale = Math.max(sx, sy); // center-crop, never stretch
++        // Preserve the GIF's full composition and aspect ratio. Never crop or stretch it.
++        // The source GIF is only 160x85, so cap enlargement at 3x to prevent the giant pixelated look.
++        float fit = Math.min(getWidth() / (float) movie.width(), getHeight() / (float) movie.height());
++        float scale = Math.min(fit, 3.0f);
++        if (scale <= 0f) scale = 1f;
+         float dx = (getWidth() - movie.width() * scale) / 2f;
+         float dy = (getHeight() - movie.height() * scale) / 2f;
++
+         canvas.save();
+         canvas.translate(dx, dy);
+         canvas.scale(scale, scale);
+diff -ruN '--exclude=.gradle' '--exclude=build' '--exclude=ic_launcher_art.webp' cheese_base/SparkRejectHelper/app/src/main/java/com/local/sparkreject/MainActivity.java cheese_fix/SparkRejectHelper/app/src/main/java/com/local/sparkreject/MainActivity.java
+--- cheese_base/SparkRejectHelper/app/src/main/java/com/local/sparkreject/MainActivity.java	2026-10-01 05:27:41.000000000 +0000
++++ cheese_fix/SparkRejectHelper/app/src/main/java/com/local/sparkreject/MainActivity.java	2026-10-01 18:35:42.672533759 +0000
+@@ -29,6 +29,7 @@
+ 
+ public final class MainActivity extends Activity {
+     static final String PREFS = "rules";
++    static final String APP_ENABLED = "app_enabled";
+     static final String OBSERVE = "observe";
+     static final String MINIMUM = "minimum_per_mile";
+     static final String LAST = "last";
+@@ -71,12 +72,23 @@
+         setContentView(root);
+ 
+         LinearLayout header = panel(PANEL_SOFT);
+-        TextView title = line("Cheese Reject Helper", 29, CHEESE);
++        TextView title = line("Cheese", 31, CHEESE);
+         title.setTypeface(Typeface.DEFAULT_BOLD);
+         header.addView(title);
+-        header.addView(line("Stable Spark reject-only helper. It never accepts offers.", 16, Color.WHITE));
++        header.addView(line("Spark reject-only helper. It never accepts offers.", 16, Color.WHITE));
+         box.addView(header);
+ 
++        LinearLayout masterPanel = panel(PANEL_SOFT);
++        Switch master = cheeseSwitch("Enable Cheese");
++        master.setChecked(prefs().getBoolean(APP_ENABLED, true));
++        masterPanel.addView(master);
++        masterPanel.addView(line("MASTER KILLSWITCH — OFF means Cheese does nothing: no offer reading, checks, or automatic rejection.", 14, CREAM));
++        master.setOnCheckedChangeListener((button, checked) -> {
++            prefs().edit().putBoolean(APP_ENABLED, checked).apply();
++            setStatus(checked ? "Cheese enabled" : "Cheese disabled by master killswitch");
++        });
++        box.addView(masterPanel);
++
+         LinearLayout checksPanel = panel(PANEL);
+         Switch observe = cheeseSwitch("Show offer checks");
+         observe.setChecked(prefs().getBoolean(OBSERVE, true));
+@@ -117,6 +129,7 @@
+         mileagePanel.addView(perMile);
+         perMile.setOnCheckedChangeListener((button, checked) -> prefs().edit().putBoolean(AUTO_PER_MILE, checked).apply());
+         mileagePanel.addView(line("Minimum dollars per mile", 17, CHEESE));
++        mileagePanel.addView(line("$/mile uses displayed offer total + separately shown incentive amount(s).", 14, CREAM));
+         EditText minimum = moneyField(prefs().getString(MINIMUM, "2.00"), "2.00");
+         mileagePanel.addView(minimum);
+         Button saveMileage = cheeseButton("SAVE PER-MI
