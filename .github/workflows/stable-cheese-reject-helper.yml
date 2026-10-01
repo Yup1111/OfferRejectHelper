@@ -15,14 +15,14 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Check out stable branch
         uses: actions/checkout@v4
 
       - name: Reconstruct stable source ZIP
         run: |
-          cat stable/CheeseRejectHelper-stable-source.zip.b64/part-* > /tmp/CheeseRejectHelper.b64
+          cat             stable/CheeseRejectHelper-stable-source.zip.b64/part-00             stable/CheeseRejectHelper-stable-source.zip.b64/part-01             stable/CheeseRejectHelper-stable-source.zip.b64/part-02             stable/CheeseRejectHelper-stable-source.zip.b64/part-03             stable/CheeseRejectHelper-stable-source.zip.b64/part-04             stable/CheeseRejectHelper-stable-source.zip.b64/part-05             stable/CheeseRejectHelper-stable-source.zip.b64/part-06-07             stable/CheeseRejectHelper-stable-source.zip.b64/part-08-09             stable/CheeseRejectHelper-stable-source.zip.b64/part-10             stable/CheeseRejectHelper-stable-source.zip.b64/part-11             stable/CheeseRejectHelper-stable-source.zip.b64/part-12             stable/CheeseRejectHelper-stable-source.zip.b64/part-13             stable/CheeseRejectHelper-stable-source.zip.b64/part-14             stable/CheeseRejectHelper-stable-source.zip.b64/part-15             > /tmp/CheeseRejectHelper.b64
+          test "$(wc -c < /tmp/CheeseRejectHelper.b64)" -eq 127692
           base64 --decode /tmp/CheeseRejectHelper.b64 > CheeseRejectHelper-stable-source.zip
           unzip -t CheeseRejectHelper-stable-source.zip
           rm -rf extracted
@@ -76,10 +76,7 @@ jobs:
         env:
           CHEESE_DEBUG_KEYSTORE_BASE64: ${{ secrets.CHEESE_DEBUG_KEYSTORE_BASE64 }}
         run: |
-          if [ -z "$CHEESE_DEBUG_KEYSTORE_BASE64" ]; then
-            echo "::error::CHEESE_DEBUG_KEYSTORE_BASE64 is required"
-            exit 1
-          fi
+          test -n "$CHEESE_DEBUG_KEYSTORE_BASE64" || { echo "::error::CHEESE_DEBUG_KEYSTORE_BASE64 is required"; exit 1; }
           mkdir -p "$HOME/.android"
           printf '%s' "$CHEESE_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
           chmod 600 "$HOME/.android/debug.keystore"
