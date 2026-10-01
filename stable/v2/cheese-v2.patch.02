@@ -1,0 +1,124 @@
+LE RATE");
+@@ -177,7 +190,7 @@
+         servicePanel.addView(serviceStatus);
+         status = line("Last result: " + prefs().getString(LAST, "none yet"), 15, Color.WHITE);
+         servicePanel.addView(status);
+-        servicePanel.addView(line("Cheese Reject Helper only reacts to visible Spark offer controls. No screenshots, customer details, account logins, or network access are used.", 13, CREAM));
++        servicePanel.addView(line("Cheese only reacts to visible Spark offer controls. No screenshots, customer details, account logins, or network access are used.", 13, CREAM));
+         box.addView(servicePanel);
+     }
+ 
+@@ -193,10 +206,14 @@
+         }
+     }
+ 
++    static boolean appEnabled(SharedPreferences p) {
++        return p.getBoolean(APP_ENABLED, true);
++    }
++
+     static boolean automaticEnabled(SharedPreferences p) {
+-        return p.getBoolean(AUTO_STORE, false)
++        return appEnabled(p) && (p.getBoolean(AUTO_STORE, false)
+                 || p.getBoolean(AUTO_PER_MILE, false)
+-                || p.getBoolean(AUTO_OFFER_PAY, false);
++                || p.getBoolean(AUTO_OFFER_PAY, false));
+     }
+ 
+     private void refreshStores() {
+@@ -296,9 +313,14 @@
+         view.setTextSize(17);
+         view.setTextColor(Color.WHITE);
+         view.setPadding(0, dp(5), 0, dp(5));
++        view.setShowText(true);
++        view.setTextOn("🧀");
++        view.setTextOff("🧀");
++        view.setSwitchMinWidth(dp(78));
++        view.setThumbTextPadding(dp(7));
+         int[][] states = new int[][] { new int[] { android.R.attr.state_checked }, new int[] {} };
+-        view.setThumbTintList(new ColorStateList(states, new int[] { CHEESE, Color.LTGRAY }));
+-        view.setTrackTintList(new ColorStateList(states, new int[] { Color.argb(170, 255, 152, 0), Color.argb(100, 160, 160, 160) }));
++        view.setThumbTintList(new ColorStateList(states, new int[] { Color.rgb(255, 224, 80), Color.rgb(120, 112, 90) }));
++        view.setTrackTintList(new ColorStateList(states, new int[] { Color.argb(230, 255, 152, 0), Color.argb(120, 80, 72, 58) }));
+         return view;
+     }
+ 
+diff -ruN '--exclude=.gradle' '--exclude=build' '--exclude=ic_launcher_art.webp' cheese_base/SparkRejectHelper/app/src/main/java/com/local/sparkreject/OfferService.java cheese_fix/SparkRejectHelper/app/src/main/java/com/local/sparkreject/OfferService.java
+--- cheese_base/SparkRejectHelper/app/src/main/java/com/local/sparkreject/OfferService.java	2026-10-01 05:25:44.000000000 +0000
++++ cheese_fix/SparkRejectHelper/app/src/main/java/com/local/sparkreject/OfferService.java	2026-10-01 18:35:43.282971667 +0000
+@@ -34,6 +34,7 @@
+     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
+         if (event.getPackageName() == null || !SPARK.contentEquals(event.getPackageName())) return;
+         SharedPreferences p = prefs();
++        if (!MainActivity.appEnabled(p)) return;
+         if (!MainActivity.automaticEnabled(p) && !p.getBoolean(MainActivity.OBSERVE, true)) return;
+         if (p.getString(MainActivity.LAST, "").contains("waiting for a Spark offer"))
+             record("Spark event received; waiting for an offer card");
+@@ -44,6 +45,11 @@
+ 
+     private void examine() {
+         SharedPreferences p = prefs();
++        if (!MainActivity.appEnabled(p)) {
++            pendingUntil = 0L;
++            pendingCard = null;
++            return;
++        }
+         boolean automatic = MainActivity.automaticEnabled(p);
+         boolean observe = p.getBoolean(MainActivity.OBSERVE, true);
+         if (!automatic && !observe) return;
+@@ -247,15 +253,18 @@
+     }
+ 
+     private String signature(Candidate c) {
+-        return c.store + "/" + c.values.pay + "/" + c.values.miles;
++        return c.store + "/" + c.values.pay + "/" + c.values.incentivePay + "/" + c.values.effectivePerMilePay + "/" + c.values.miles;
+     }
+ 
+     private String describe(Candidate c, RuleEngine.Outcome outcome) {
+         String store = c.store == null ? "store ?" : "#" + c.store;
+         String pay = c.values.pay == null ? "$?" : "$" + c.values.pay;
++        String incentive = c.values.incentivePay.signum() > 0 ? " + $" + c.values.incentivePay + " incentive" : "";
++        String effective = c.values.effectivePerMilePay == null ? "$?" : "$" + c.values.effectivePerMilePay;
+         String miles = c.values.miles == null ? "? mi" : c.values.miles + " mi";
+         String rate = c.values.perMile == null ? "$?/mi" : "$" + c.values.perMile + "/mi";
+-        return outcome.result + " " + store + " " + pay + " / " + miles + " / " + rate + " — " + outcome.reason;
++        return outcome.result + " " + store + " displayed " + pay + incentive + " = " + effective
++                + " for $/mi / " + miles + " / " + rate + " — " + outcome.reason;
+     }
+ 
+     private BigDecimal readPositive(String key, String fallback) {
+diff -ruN '--exclude=.gradle' '--exclude=build' '--exclude=ic_launcher_art.webp' cheese_base/SparkRejectHelper/app/src/main/java/com/local/sparkreject/RuleEngine.java cheese_fix/SparkRejectHelper/app/src/main/java/com/local/sparkreject/RuleEngine.java
+--- cheese_base/SparkRejectHelper/app/src/main/java/com/local/sparkreject/RuleEngine.java	2026-10-01 05:24:16.000000000 +0000
++++ cheese_fix/SparkRejectHelper/app/src/main/java/com/local/sparkreject/RuleEngine.java	2026-10-01 18:35:17.798425954 +0000
+@@ -40,6 +40,7 @@
+ 
+     public static Outcome decide(String store, Decision.Values values, Config config) {
+         BigDecimal pay = values == null ? null : values.pay;
++        BigDecimal perMilePay = values == null ? null : values.effectivePerMilePay;
+         BigDecimal miles = values == null ? null : values.miles;
+ 
+         // Highest-priority guard. If enabled but pay cannot be verified, never reject.
+@@ -58,14 +59,14 @@
+             return new Outcome(Result.REJECT, "Store is ON in Store Reject List");
+ 
+         if (config.rejectPerMile && positive(config.minimumPerMile)
+-                && pay != null && miles != null && miles.signum() > 0
+-                && pay.compareTo(config.minimumPerMile.multiply(miles)) < 0)
+-            return new Outcome(Result.REJECT, "Below minimum $/mile");
++                && perMilePay != null && miles != null && miles.signum() > 0
++                && perMilePay.compareTo(config.minimumPerMile.multiply(miles)) < 0)
++            return new Outcome(Result.REJECT, "Below minimum $/mile (displayed total + incentive)");
+ 
+         boolean unknown = false;
+         if (config.rejectOfferPay && pay == null) unknown = true;
+         if (config.rejectStore && store == null) unknown = true;
+-        if (config.rejectPerMile && (pay == null || miles == null || miles.signum() <= 0)) unknown = true;
++        if (config.rejectPerMile && (perMilePay == null || miles == null || miles.signum() <= 0)) unknown = true;
+         if (unknown) return new Outcome(Result.UNKNOWN, "One or more enabled rules could not be read safely");
+         return new Outcome(Result.KEEP, "No enabled rejection rule matched");
+     }
+diff -ruN '--exclude=.gradle' '--exclude=build' '--exclude=ic_launcher_art.webp' cheese_base/SparkRejectHelper/app/src/main/res/values/strings.xml cheese_fix/SparkRejectHelper/app/src/main/res/values/strings.xml
+--- cheese_base/SparkRejectHelper/app/src/main/res/values/strings.xml	2026-10-01 05:26:05.000000000 +0000
++++ cheese_fix/SparkRejectHelper/app/src/main/res/values/strings.xml	2026-10-01 18:35:43.920787562 +0000
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name
