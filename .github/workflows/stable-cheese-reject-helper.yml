@@ -1,4 +1,4 @@
-name: Build stable Cheese Reject Helper
+name: Build stable Cheese
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ on:
     paths:
       - 'stable/CheeseRejectHelper-stable-source.zip.b64/**'
       - '.github/workflows/stable-cheese-reject-helper.yml'
+      - 'stable/v2/**'
 
 permissions:
   contents: read
@@ -30,6 +31,16 @@ jobs:
           unzip -q CheeseRejectHelper-stable-source.zip -d extracted
           test -f extracted/SparkRejectHelper/settings.gradle
           test -f extracted/SparkRejectHelper/app/src/main/java/com/local/sparkreject/RuleEngine.java
+          cat stable/v2/cheese-v2.patch.00 stable/v2/cheese-v2.patch.01 stable/v2/cheese-v2.patch.02 stable/v2/cheese-v2.patch.03 > /tmp/cheese-v2.patch
+          patch -p1 -d extracted < /tmp/cheese-v2.patch
+
+      - name: Make Cheese launcher icon readable
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends imagemagick fonts-dejavu-core
+          ICON="extracted/SparkRejectHelper/app/src/main/res/drawable-nodpi/ic_launcher_art.webp"
+          convert "$ICON"             -crop 256x178+0+0 +repage             -resize 256x178!             -background '#07162E' -gravity north -extent 256x256             -gravity south -font DejaVu-Sans-Bold -pointsize 40             -fill '#FFC107' -stroke '#000000' -strokewidth 2             -annotate +0+8 'CHEESE'             "$ICON"
+          identify "$ICON"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -51,7 +62,11 @@ jobs:
         working-directory: extracted/SparkRejectHelper
         run: |
           grep -q "applicationId 'com.local.cheeserejecthelper'" app/build.gradle
-          grep -q 'Cheese Reject Helper' app/src/main/AndroidManifest.xml
+          grep -q 'android:label="Cheese"' app/src/main/AndroidManifest.xml
+          grep -q 'APP_ENABLED = "app_enabled"' app/src/main/java/com/local/sparkreject/MainActivity.java
+          grep -q 'effectivePerMilePay' app/src/main/java/com/local/sparkreject/Decision.java
+          grep -q 'displayed total + incentive' app/src/main/java/com/local/sparkreject/RuleEngine.java
+          grep -q 'Math.min(fit, 3.0f)' app/src/main/java/com/local/sparkreject/GifBackgroundView.java
           ! grep -R -E '3726|2273' app/src/main/java || (echo "::error::Hard-coded personal store found" && exit 1)
           test -f app/src/main/res/raw/cheese_background.gif
 
@@ -68,9 +83,9 @@ jobs:
 
       - name: Set stable build version
         run: |
-          CODE=$((901000 + GITHUB_RUN_NUMBER))
+          CODE=$((902000 + GITHUB_RUN_NUMBER))
           echo "STABLE_CODE=$CODE" >> "$GITHUB_ENV"
-          echo "STABLE_VERSION=0.9.1.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "STABLE_VERSION=0.9.2.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
       - name: Restore signing key
         env:
@@ -100,9 +115,9 @@ jobs:
       - name: Prepare deliverables
         run: |
           mkdir -p output
-          cp extracted/SparkRejectHelper/app/build/outputs/apk/debug/app-debug.apk "output/Cheese-Reject-Helper-$STABLE_VERSION.apk"
-          (cd extracted && zip -qr "../output/Cheese-Reject-Helper-$STABLE_VERSION-source.zip" SparkRejectHelper)
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "output/Cheese-Reject-Helper-$STABLE_VERSION.apk" > output/signing-certificate.txt
+          cp extracted/SparkRejectHelper/app/build/outputs/apk/debug/app-debug.apk "output/Cheese-$STABLE_VERSION.apk"
+          (cd extracted && zip -qr "../output/Cheese-$STABLE_VERSION-source.zip" SparkRejectHelper)
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "output/Cheese-$STABLE_VERSION.apk" > output/signing-certificate.txt
           {
             echo "Branch: stable-cheese-reject-helper"
             echo "Commit: $GITHUB_SHA"
@@ -114,6 +129,6 @@ jobs:
       - name: Upload stable deliverables
         uses: actions/upload-artifact@v4
         with:
-          name: Cheese-Reject-Helper-${{ env.STABLE_VERSION }}
+          name: Cheese-${{ env.STABLE_VERSION }}
           path: output/
           if-no-files-found: error
