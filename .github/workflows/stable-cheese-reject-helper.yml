@@ -85,13 +85,23 @@ jobs:
 
       - name: Build stable APK
         working-directory: extracted/SparkRejectHelper
-        run: gradle :app:assembleDebug -PstableVersionCode="$STABLE_CODE" -PstableVersionName="$STABLE_VERSION" --stacktrace
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          p = Path("app/build.gradle")
+          s = p.read_text()
+          s = s.replace("versionCode (project.findProperty('stableVersionCode') ?: '90101').toInteger()", "versionCode " + os.environ["STABLE_CODE"])
+          s = s.replace("versionName (project.findProperty('stableVersionName') ?: '0.9.1-dev').toString()", "versionName '" + os.environ["STABLE_VERSION"] + "'")
+          p.write_text(s)
+          PY
+          gradle :app:assembleDebug --stacktrace
 
       - name: Prepare deliverables
         run: |
           mkdir -p output
           cp extracted/SparkRejectHelper/app/build/outputs/apk/debug/app-debug.apk "output/Cheese-Reject-Helper-$STABLE_VERSION.apk"
-          cp CheeseRejectHelper-stable-source.zip "output/Cheese-Reject-Helper-$STABLE_VERSION-source.zip"
+          (cd extracted && zip -qr "../output/Cheese-Reject-Helper-$STABLE_VERSION-source.zip" SparkRejectHelper)
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "output/Cheese-Reject-Helper-$STABLE_VERSION.apk" > output/signing-certificate.txt
           {
             echo "Branch: stable-cheese-reject-helper"
